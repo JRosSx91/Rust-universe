@@ -1,31 +1,43 @@
-# plotter.py - Lee los datos de Rust y crea el gráfico de viabilidad
+# plotter.py - v5.0 (Holistic Analysis)
 
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# 1. Leer el archivo CSV generado por Rust
 try:
-    data = pd.read_csv('viability_data.csv')
+    log_data = pd.read_csv('evolution_log_final.csv', decimal='.')
 except FileNotFoundError:
-    print("Error: No se encontró el archivo 'viability_data.csv'.")
-    print("Asegúrate de ejecutar el programa de Rust primero con 'cargo run'.")
+    print("Error: Could not find 'evolution_log_final.csv'.")
     exit()
 
-# 2. Crear el gráfico
 plt.style.use('dark_background')
-fig, ax = plt.subplots(figsize=(12, 7))
+fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 20), sharex=True)
+fig.suptitle('Convergencia Evolutiva Holística', fontsize=20)
 
-ax.scatter(data['alpha'], data['fitness'], alpha=0.6, s=15,
-           c=data['fitness'], cmap='viridis')
+# 1. Gráfico de Fitness
+ax1.plot(log_data['generation'], log_data['best_fitness'], 'o-', color='cyan', label='Mejor Fitness')
+ax1.set_ylabel('Puntuación de Fitness')
+ax1.set_ylim(-0.05, 1.05)
+ax1.grid(True, linestyle='--', alpha=0.3)
+ax1.set_title('Evolución de la Aptitud General')
 
-# 3. Añadir detalles y etiquetas
-ax.axvline(1/137.036, color='red', linestyle='--', label='Alpha Observado (~1/137)')
-ax.set_title('Paisaje de Viabilidad de Universos Simulados', fontsize=16)
-ax.set_xlabel('Constante de Estructura Fina (alpha)', fontsize=12)
-ax.set_ylabel('Puntuación de Fitness Evolutiva', fontsize=12)
-ax.legend()
-ax.grid(True, linestyle='--', alpha=0.2)
+# 2. Gráfico de Propiedades Emergentes
+ax2.plot(log_data['generation'], log_data['deuterium_energy'], 'o-', color='lime', label='Energía Enlace Deuterio (MeV)')
+ax2.axhline(2.22, color='red', linestyle='--', label='Óptimo Deuterio (~2.22 MeV)')
+ax2.set_ylabel('Energía (MeV)')
+ax2.grid(True, linestyle='--', alpha=0.3)
+ax2.legend()
+ax2.set_title('Convergencia de la Nucleosíntesis')
 
-# 4. Mostrar el gráfico
-print("\nMostrando el gráfico de viabilidad...")
+# 3. Gráfico de la Generación de Leptones Estables
+# Muestra qué generación fue la base de la química en el universo ganador de cada era.
+ax3.plot(log_data['generation'], log_data['stable_lepton_gen'], 'o', color='magenta', markersize=8, label='Generación de Leptón Estable')
+ax3.set_xlabel('Generación')
+ax3.set_ylabel('Número de Generación')
+ax3.set_yticks([0, 1, 2, 3])
+ax3.set_yticklabels(['Extinto', 'Gen 1 (Electrón)', 'Gen 2 (Muón)', 'Gen 3 (Tauón)'])
+ax3.grid(True, linestyle='--', alpha=0.3)
+ax3.set_title('Base de la Química a lo Largo de la Evolución')
+
+plt.tight_layout(rect=[0, 0.03, 1, 0.96])
+print("\nMostrando el análisis holístico de la evolución...")
 plt.show()

@@ -1,138 +1,194 @@
+// main.rs - v7.0 (Holistic Fitness and Full Genetic Evolution)
+
 use std::error::Error;
 use csv::Writer;
 use rand::prelude::*;
-use rand_distr::Normal;
+use rand_distr::{Normal, Distribution};
 use std::f64::consts::PI;
 
-// --- El Genoma: Las constantes INDEPENDIENTES que mutarán ---
-#[derive(Clone)] // Le decimos a Rust que podemos copiar este struct fácilmente
+// --- El Genoma: Todas las constantes que pueden mutar ---
+#[derive(Clone, Debug)]
 struct CosmicGenes {
-    e: f64,               // Carga elemental
-    alpha_s: f64,         // Acoplamiento Fuerte
-    alpha_w: f64,         // Acoplamiento Débil
-    mass_electron: f64,
-    mass_up_quark: f64,
-    mass_down_quark: f64,
+    e: f64, alpha_s: f64, alpha_w: f64,
+    mass_electron: f64, mass_up_quark: f64, mass_down_quark: f64,
+    mass_muon: f64, mass_tauon: f64,
 }
 
-// --- El Organismo: El Universo completo, con sus propiedades derivadas ---
+// --- El Organismo: El Universo completo ---
+#[derive(Debug)]
 struct Universe {
     name: String,
-    genes: CosmicGenes, // Contiene la "receta" genética
-    
-    // Constantes "Hardware" (las consideramos fijas para nuestra simulación)
-    c: f64,
-    h_bar: f64,
-    g: f64,
-    epsilon_0: f64,
-
-    // Constantes DERIVADAS, calculadas a partir de los genes y el hardware
+    genes: CosmicGenes,
+    c: f64, h_bar: f64, g: f64, epsilon_0: f64,
     alpha: f64,
 }
 
+// --- Propiedades Físicas Emergentes ---
+#[derive(Debug, Clone)]
+struct EmergentPhysics {
+    deuterium_binding_energy: f64, // en MeV
+    stellar_fusion_index: f64,
+    stable_lepton_generation: u8,
+}
+
 impl Universe {
-    // El constructor ahora "hace crecer" un Universo a partir de un genoma.
     fn from_genes(name: String, genes: CosmicGenes) -> Self {
-        
-        // Definimos el "Hardware" como constantes fijas del escenario.
-        let c = 299_792_458.0;
-        let h = 6.626_070_15e-34;
-        let h_bar = h / (2.0 * PI);
-        let g = 6.674_30e-11;
-        let epsilon_0 = 8.854_187_81e-12;
-
-        // Calculamos las propiedades DERIVADAS.
+        let c = 299_792_458.0; let h = 6.626_070_15e-34; let h_bar = h / (2.0 * PI);
+        let g = 6.674_30e-11; let epsilon_0 = 8.854_187_81e-12;
         let alpha = genes.e.powi(2) / (4.0 * PI * epsilon_0 * h_bar * c);
-
-        // Devolvemos el "organismo" completo.
-        Universe {
-            name,
-            genes,
-            c, h_bar, g, epsilon_0,
-            alpha,
-        }
+        Universe { name, genes, c, h_bar, g, epsilon_0, alpha }
     }
 }
 
-// La función de fitness no cambia, opera sobre el Universo ya construido.
-fn calculate_fitness(universe: &Universe) -> f64 {
-    // --- NUEVA CONDICIÓN: Estabilidad del Protón ---
-    if universe.genes.mass_up_quark >= universe.genes.mass_down_quark {
-        return 0.0; // Universo estéril, los átomos no son estables.
-    }
-    let fitness_proton = 1.0; // Si pasa la prueba, su fitness para esta condición es 1.
+// La función que calcula las propiedades emergentes
+fn calculate_emergent_physics(universe: &Universe) -> EmergentPhysics {
+    // 1. Índice de Fusión Estelar
+    let stellar_fusion_index = universe.genes.alpha_s / universe.alpha;
 
-    // --- Condición de Alpha (la que ya teníamos) ---
-    let alpha = universe.alpha;
-    let lower_bound: f64 = 1.0 / 170.0;
-    let upper_bound: f64 = 1.0 / 100.0;
-    
-    if alpha < lower_bound || alpha > upper_bound {
-        return 0.0;
-    }
-    
-    let optimal_alpha: f64 = 1.0 / 137.036;
-    let sigma: f64 = 0.002;
-    let fitness_alpha = (-((alpha - optimal_alpha).powi(2)) / (2.0f64 * sigma.powi(2))).exp();
-    
-    // El fitness total es el producto de todas las condiciones.
-    fitness_proton * fitness_alpha
+    // 2. Energía de Enlace del Deuterio
+    let mass_proton = 2.0 * universe.genes.mass_up_quark + universe.genes.mass_down_quark;
+    let mass_neutron = universe.genes.mass_up_quark + 2.0 * universe.genes.mass_down_quark;
+    let kg_to_mev = 5.6095886e29;
+    let binding_energy_kg = (mass_proton + mass_neutron) * (universe.genes.alpha_s * 0.0012);
+    let deuterium_binding_energy = binding_energy_kg * kg_to_mev;
+
+    // 3. Estabilidad de Leptones
+    const K_DECAY_FACTOR: f64 = 1.0e35;
+    let fitness_stability_1gen = 1.0; // Electron
+    let muon_decay_rate = universe.genes.alpha_w * universe.genes.mass_muon.powi(2);
+    let fitness_stability_2gen = (-muon_decay_rate * K_DECAY_FACTOR).exp();
+    let tauon_decay_rate = universe.genes.alpha_w * universe.genes.mass_tauon.powi(2);
+    let fitness_stability_3gen = (-tauon_decay_rate * K_DECAY_FACTOR).exp();
+
+    let stable_lepton_generation = if fitness_stability_1gen > 0.9 { 1 }
+                                   else if fitness_stability_2gen > 0.9 { 2 }
+                                   else if fitness_stability_3gen > 0.9 { 3 }
+                                   else { 0 }; // Ninguna es estable
+
+    EmergentPhysics { stellar_fusion_index, deuterium_binding_energy, stable_lepton_generation }
 }
 
-// VERSIÓN CORREGIDA de la función main
+// La función de fitness ahora es un juez de estas propiedades emergentes
+fn calculate_fitness(physics: &EmergentPhysics) -> f64 {
+    // Regla 1: Nucleosíntesis (Deuterio)
+    let optimal_deuterium: f64 = 2.22; let sigma_deuterium: f64 = 0.5;
+    let fitness_nucleosynthesis: f64 = (-((physics.deuterium_binding_energy - optimal_deuterium).powi(2)) / (2.0f64 * sigma_deuterium.powi(2))).exp();
+
+    // Regla 2: Fusión Estelar
+    let optimal_fusion: f64 = 137.036; let sigma_fusion: f64 = 5.0;
+    let fitness_stellar = (-((physics.stellar_fusion_index - optimal_fusion).powi(2)) / (2.0f64 * sigma_fusion.powi(2))).exp();
+    
+    // Regla 3: Debe haber una base para la química (un leptón estable)
+    let fitness_chemistry: f64 = if physics.stable_lepton_generation > 0 { 1.0 } else { 0.0 };
+
+    fitness_nucleosynthesis * fitness_stellar * fitness_chemistry
+}
+
+// La función de promediado ahora incluye todos los genes que mutan
+fn calculate_average_genes(pool: &[CosmicGenes]) -> CosmicGenes {
+    if pool.is_empty() { panic!("Breeding pool cannot be empty!"); }
+    let pool_size = pool.len() as f64;
+    CosmicGenes {
+        e: pool.iter().map(|g| g.e).sum::<f64>() / pool_size,
+        alpha_s: pool.iter().map(|g| g.alpha_s).sum::<f64>() / pool_size,
+        alpha_w: pool.iter().map(|g| g.alpha_w).sum::<f64>() / pool_size,
+        mass_electron: pool.iter().map(|g| g.mass_electron).sum::<f64>() / pool_size,
+        mass_up_quark: pool.iter().map(|g| g.mass_up_quark).sum::<f64>() / pool_size,
+        mass_down_quark: pool.iter().map(|g| g.mass_down_quark).sum::<f64>() / pool_size,
+        mass_muon: pool.iter().map(|g| g.mass_muon).sum::<f64>() / pool_size,
+        mass_tauon: pool.iter().map(|g| g.mass_tauon).sum::<f64>() / pool_size,
+    }
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
-    const NUM_UNIVERSES: usize = 10_000;
-    let base_genes = CosmicGenes {
-        e: 1.602_176_63e-19, alpha_s: 1.0, alpha_w: 1.0e-6,
-        mass_electron: 9.109_383_7e-31, mass_up_quark: 3.9e-30, mass_down_quark: 8.5e-30,
-    };
+    const NUM_GENERATIONS: u32 = 200;
+    const POPULATION_SIZE: usize = 10_000;
+    const BREEDING_POOL_SIZE: usize = 100;
 
-    println!("Generando un multiverso de {} universos mutantes...", NUM_UNIVERSES);
-    let mut multiverse: Vec<Universe> = Vec::with_capacity(NUM_UNIVERSES);
     let mut rng = thread_rng();
-    let e_distribution = Normal::new(base_genes.e, 1.0e-21).unwrap();
-
-    for i in 0..NUM_UNIVERSES {
-        let mut mutated_genes = base_genes.clone();
-        mutated_genes.e = e_distribution.sample(&mut rng);
-        multiverse.push(Universe::from_genes(format!("Universo #{}", i + 1), mutated_genes));
-    }
-    println!("Multiverso generado.");
-
-    // --- Guardar datos en CSV ---
-    println!("Guardando datos de viabilidad en 'viability_data.csv'...");
-    let mut wtr = Writer::from_path("viability_data.csv")?;
-    wtr.write_record(&["alpha", "fitness"])?;
-
-    for u in &multiverse {
-        let fitness = calculate_fitness(u);
-        wtr.write_record(&[u.alpha.to_string(), fitness.to_string()])?;
-    }
-    wtr.flush()?;
-    println!("Datos guardados.");
-
-    // --- Encontrar e imprimir al ganador ---
-    println!("Aplicando selección natural para encontrar al mejor...");
-    let fittest_universe = multiverse
-        .iter()
-        .max_by(|a, b| calculate_fitness(a).partial_cmp(&calculate_fitness(b)).unwrap());
-
-    println!("\n=======================================================");
-    println!("SELECCIÓN COMPLETADA. EL UNIVERSO SUPERVIVIENTE ES:");
+    let mut wtr = Writer::from_path("evolution_log_final.csv")?;
+    wtr.write_record(&["generation", "best_fitness", "deuterium_energy", "stable_lepton_gen"])?;
     
-    if let Some(winner) = fittest_universe {
-        let fitness_score = calculate_fitness(winner);
-        println!("  Nombre: {}", winner.name);
-        println!("  Gen 'e' mutado: {:.6e} C", winner.genes.e);
-        println!("  (Valor base 'e':   {:.6e} C)", base_genes.e);
-        println!("  Alpha resultante: {:.6}", winner.alpha);
-        println!("  Puntuación de Fitness: {:.4}", fitness_score);
-    } else {
-        println!("No se encontró ningún universo viable en la población.");
-    }
-    println!("=======================================================\n");
+    println!("--- STARTING EVOLUTIONARY SIMULATION (v7.0 - Holistic Fitness) ---");
 
-    // ESTA DEBE SER LA ÚLTIMA LÍNEA
-    Ok(()) // Devolver Ok para indicar que todo ha ido bien
+    // --- GENERACIÓN 0: CALDO PRIMORDIAL ---
+    let mut population: Vec<(Universe, EmergentPhysics)> = Vec::with_capacity(POPULATION_SIZE);
+    for i in 0..POPULATION_SIZE {
+        let random_genes = CosmicGenes {
+            e: rng.gen_range(0.5e-19..2.5e-19), alpha_s: rng.gen_range(0.1..2.0),
+            alpha_w: rng.gen_range(1.0e-7..1.0e-4),
+            mass_up_quark: rng.gen_range(1.0e-30..1.0e-29), mass_down_quark: rng.gen_range(1.0e-30..1.0e-29),
+            mass_electron: rng.gen_range(1.0e-31..1.0e-30),
+            mass_muon: rng.gen_range(1.0e-29..1.0e-28),
+            mass_tauon: rng.gen_range(1.0e-28..1.0e-27),
+        };
+        let universe = Universe::from_genes(format!("G0U{}", i), random_genes);
+        let physics = calculate_emergent_physics(&universe);
+        population.push((universe, physics));
+    }
+
+    population.sort_by(|a, b| calculate_fitness(&b.1).partial_cmp(&calculate_fitness(&a.1)).unwrap());
+    
+    let breeding_pool: Vec<CosmicGenes> = population.iter().take(BREEDING_POOL_SIZE).map(|(u, _p)| u.genes.clone()).collect();
+    
+    if breeding_pool.is_empty() || calculate_fitness(&population[0].1) < 0.01 {
+        println!("BIG BANG FAILED: Total extinction in the primordial generation.");
+        return Ok(());
+    }
+
+    let mut current_genes = calculate_average_genes(&breeding_pool);
+    let best_physics = &population[0].1;
+    let best_fitness = calculate_fitness(best_physics);
+    println!("Generation 0   | First Survivors Found! Best Fitness: {:.4} | Deuterium: {:.2} MeV | Stable Lepton: Gen {}",
+        best_fitness, best_physics.deuterium_binding_energy, best_physics.stable_lepton_generation);
+    wtr.write_record(&[
+        "0".to_string(), best_fitness.to_string(),
+        best_physics.deuterium_binding_energy.to_string(),
+        best_physics.stable_lepton_generation.to_string(),
+    ])?;
+        
+    // --- BUCLE DE EVOLUCIÓN ---
+    for generation in 1..=NUM_GENERATIONS {
+        let mut population: Vec<(Universe, EmergentPhysics)> = Vec::with_capacity(POPULATION_SIZE);
+        let mut create_dist = |mean: f64| Normal::new(mean, mean * 0.10).unwrap();
+        
+        for i in 0..POPULATION_SIZE {
+            let mutated_genes = CosmicGenes {
+                e: create_dist(current_genes.e).sample(&mut rng),
+                alpha_s: create_dist(current_genes.alpha_s).sample(&mut rng),
+                alpha_w: create_dist(current_genes.alpha_w).sample(&mut rng),
+                mass_electron: create_dist(current_genes.mass_electron).sample(&mut rng),
+                mass_up_quark: create_dist(current_genes.mass_up_quark).sample(&mut rng),
+                mass_down_quark: create_dist(current_genes.mass_down_quark).sample(&mut rng),
+                mass_muon: create_dist(current_genes.mass_muon).sample(&mut rng),
+                mass_tauon: create_dist(current_genes.mass_tauon).sample(&mut rng),
+            };
+            let universe = Universe::from_genes(format!("G{}U{}", generation, i), mutated_genes);
+            let physics = calculate_emergent_physics(&universe);
+            population.push((universe, physics));
+        }
+
+        population.sort_by(|a, b| calculate_fitness(&b.1).partial_cmp(&calculate_fitness(&a.1)).unwrap());
+        let breeding_pool: Vec<CosmicGenes> = population.iter().take(BREEDING_POOL_SIZE).map(|(u, _p)| u.genes.clone()).collect();
+        
+        if breeding_pool.is_empty() { println!("GENERATION {}: EXTINCTION EVENT!", generation); break; }
+
+        current_genes = calculate_average_genes(&breeding_pool);
+        let best_physics = &population[0].1;
+        let best_fitness = calculate_fitness(best_physics);
+        println!("Generation {:<3} | Best Fitness: {:.4} | Deuterium: {:.2} MeV | Stable Lepton: Gen {}",
+            generation, best_fitness, best_physics.deuterium_binding_energy, best_physics.stable_lepton_generation);
+        wtr.write_record(&[
+            generation.to_string(), best_fitness.to_string(),
+            best_physics.deuterium_binding_energy.to_string(),
+            best_physics.stable_lepton_generation.to_string(),
+        ])?;
+    }
+    
+    wtr.flush()?;
+    println!("\n--- EVOLUTION COMPLETE ---");
+    println!("Final optimized genome: {:?}", current_genes);
+    println!("Evolution log saved to 'evolution_log_final.csv'");
+    
+    Ok(())
 }
