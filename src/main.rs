@@ -63,29 +63,46 @@ impl PhysicsEngine {
     }
 
     /// Feasibility logic for a generational path
-    fn evaluate_viability_path(&self, quark1_mass: f64, quark2_mass: f64) -> f64 {
-        if quark1_mass >= quark2_mass { return 0.0; }
-        let mut fitness_score = 0.2;
-
+    /// Lógica de viabilidad con gradientes de éxito (Gaussiana).
+    fn evaluate_viability_path(&self, quark1_mass: f64, quark2_mass: f64, lepton_mass: f64) -> f64 {
+        // --- NIVEL 1: Viabilidad Atómica ---
+        // Este filtro sigue siendo binario. Un átomo es estable o no lo es.
         let mass_proton = 2.0 * quark1_mass + quark2_mass;
         let mass_neutron = quark1_mass + 2.0 * quark2_mass;
-        let binding_energy_kg = (mass_proton + mass_neutron) * (self.laws.alpha_s * 0.0012);
-        let deuterium_energy = binding_energy_kg * 5.6095886e29;
-        if !(deuterium_energy > 1.5 && deuterium_energy < 3.0) { return fitness_score; }
-        fitness_score = 0.4;
-
-        let stellar_index = self.laws.alpha_s / self.alpha;
-        if !(stellar_index > 100.0 && stellar_index < 180.0) { return fitness_score; }
-        fitness_score = 0.6;
-
-        let optimal_fusion: f64 = 137.036; let sigma_fusion: f64 = 5.0;
-        let fitness_bonus_chemistry: f64 = (-((stellar_index - optimal_fusion).powi(2)) / (2.0 * sigma_fusion.powi(2))).exp();
-        fitness_score += fitness_bonus_chemistry * 0.2;
-
-        let optimal_deuterium: f64 = 2.22; let sigma_deuterium: f64 = 0.5;
-        let fitness_bonus_life: f64 = (-((deuterium_energy - optimal_deuterium).powi(2)) / (2.0 * sigma_deuterium.powi(2))).exp();
-        fitness_score += fitness_bonus_life * 0.2;
+        if mass_proton >= mass_neutron { return 0.0; }
+        if mass_proton + lepton_mass <= mass_neutron { return 0.0; }
         
+        // Puntuación base por pasar el primer filtro.
+        let mut fitness_score = 0.2;
+
+        // --- NIVEL 2: Viabilidad de Nucleosíntesis (AHORA SUAVIZADO) ---
+        let deuterium_energy: f64 = (mass_proton + mass_neutron) * (self.laws.alpha_s * 0.0012) * 5.6095886e29;
+        let optimal_deuterium: f64 = 2.22; // MeV
+        let sigma_deuterium: f64 = 0.5; // MeV, una desviación estándar "razonable"
+        let fitness_nucleosynthesis: f64 = (-((deuterium_energy - optimal_deuterium).powi(2)) / (2.0 * sigma_deuterium.powi(2))).exp();
+        
+        // La puntuación de este nivel es ahora un factor (0 a 1) que multiplica el potencial restante (0.8)
+        fitness_score += fitness_nucleosynthesis * 0.2; // Bonus máximo de +0.2 si es perfecto
+
+        // --- NIVEL 3: Viabilidad Estelar (AHORA SUAVIZADO) ---
+        let stellar_index: f64 = self.laws.alpha_s / self.alpha;
+        let optimal_stellar: f64 = 137.0;
+        let sigma_stellar: f64 = 20.0; // Una ventana más amplia para la formación de estrellas
+        let fitness_stellar = (-((stellar_index - optimal_stellar).powi(2)) / (2.0 * sigma_stellar.powi(2))).exp();
+
+        fitness_score += fitness_stellar * 0.2; // Bonus máximo de +0.2
+
+        // --- NIVEL 4 & 5: Viabilidad Química y Biológica (ajustes finos) ---
+        // Estos se convierten en bonificaciones adicionales si los valores son casi perfectos.
+        // Usamos una sigma mucho más pequeña para representar el "ajuste fino".
+        let sigma_deuterium_fine: f64 = 0.1;
+        let fitness_fine_tuning: f64 = (-((deuterium_energy - optimal_deuterium).powi(2)) / (2.0 * sigma_deuterium_fine.powi(2))).exp();
+        
+        let sigma_stellar_fine: f64 = 5.0;
+        let fitness_chemistry: f64 = (-((stellar_index - optimal_stellar).powi(2)) / (2.0 * sigma_stellar_fine.powi(2))).exp();
+
+        fitness_score += (fitness_fine_tuning * fitness_chemistry) * 0.4; // Bonus máximo de +0.4
+
         fitness_score
     }
 }
@@ -96,14 +113,14 @@ fn calculate_fitness(laws: &CosmicLaw) -> (f64, u8) {
 
     // --- 1st Gen ---
     let fitness_gen1 = engine.evaluate_viability_path(
-        laws.mass_up_quark, laws.mass_down_quark
+        laws.mass_up_quark, laws.mass_down_quark, laws.mass_electron
     );
 
     // --- 2nd Gen ---
     let mut fitness_gen2 = 0.0;
     if MUON.spin == 0.5 && engine.calculate_lifetime(laws.mass_muon) > STABILITY_THRESHOLD_S {
         fitness_gen2 = engine.evaluate_viability_path(
-            laws.mass_strange_quark, laws.mass_charm_quark
+            laws.mass_strange_quark, laws.mass_charm_quark, laws.mass_muon
         );
     }
 
@@ -111,7 +128,7 @@ fn calculate_fitness(laws: &CosmicLaw) -> (f64, u8) {
     let mut fitness_gen3 = 0.0;
     if TAUON.spin == 0.5 && engine.calculate_lifetime(laws.mass_tauon) > STABILITY_THRESHOLD_S {
         fitness_gen3 = engine.evaluate_viability_path(
-            laws.mass_bottom_quark, laws.mass_top_quark
+            laws.mass_bottom_quark, laws.mass_top_quark, laws.mass_tauon
         );
     }
 
@@ -127,18 +144,21 @@ fn calculate_fitness(laws: &CosmicLaw) -> (f64, u8) {
 
 // --- MAIN SIMULATE FUNCTION ---
 fn main() -> Result<(), Box<dyn Error>> {
-    const NUM_UNIVERSES_TO_MAP: u64 = 10_000_000;
-    const FITNESS_THRESHOLD_TO_LOG: f64 = 0.2;
+    const NUM_UNIVERSES_TO_MAP: u64 = 5_000_000; // Reducimos a 5M para una ejecución más rápida
+    const FITNESS_THRESHOLD_TO_LOG: f64 = 0.0;
+    const SAMPLING_FACTOR: u64 = 100;
 
     let mut rng = thread_rng();
     let mut wtr = csv::Writer::from_path("landscape_data.csv")?;
     wtr.write_record(&[
-        "fitness", "winning_gen", "mass_up_quark", "mass_down_quark", 
-        "alpha_s", "alpha", "G"
+        "fitness", "winning_gen", "mass_up_quark", "mass_down_quark", "mass_strange_quark", 
+        "mass_charm_quark", "mass_bottom_quark", "mass_top_quark"
     ])?;
 
-    println!("--- STARTING LANDSCAPE MAPPING (v15.1) ---");
-    println!("Simulating {} universes to map the viability landscape...", NUM_UNIVERSES_TO_MAP);
+    println!("--- STARTING LANDSCAPE MAPPING (v15.2 - with Sampling) ---");
+    println!("Simulating {} universes and sampling 1 in {} viable candidates...", NUM_UNIVERSES_TO_MAP, SAMPLING_FACTOR);
+
+    let mut viable_count: u64 = 0;
 
     for i in 0..NUM_UNIVERSES_TO_MAP {
         let random_laws = CosmicLaw {
@@ -146,7 +166,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             e: rng.gen_range(0.5e-19..2.5e-19),
             alpha_s: rng.gen_range(0.1..2.0),
             alpha_w: rng.gen_range(1.0e-9..1.0e-4),
-            mass_up_quark: rng.gen_range(1.0e-30..6.0e-30), // Rango ampliado para mejor visualización
+            mass_up_quark: rng.gen_range(1.0e-30..6.0e-30),
             mass_down_quark: rng.gen_range(1.0e-30..1.3e-29),
             mass_electron: rng.gen_range(1.0e-31..1.0e-30),
             mass_strange_quark: rng.gen_range(1.0e-29..1.0e-28), 
@@ -160,16 +180,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         let (fitness, winning_gen) = calculate_fitness(&random_laws);
 
         if fitness > FITNESS_THRESHOLD_TO_LOG {
-            let engine = PhysicsEngine::new(random_laws.clone());
-            wtr.write_record(&[
-                fitness.to_string(),
-                winning_gen.to_string(),
-                random_laws.mass_up_quark.to_string(),
-                random_laws.mass_down_quark.to_string(),
-                random_laws.alpha_s.to_string(),
-                engine.alpha.to_string(),
-                random_laws.G.to_string(),
-            ])?;
+            viable_count += 1;
+            // Solo escribimos en el archivo si el contador es un múltiplo de nuestro factor
+            if viable_count % SAMPLING_FACTOR == 0 {
+                wtr.write_record(&[
+                    format!("{:e}", fitness),
+                    winning_gen.to_string(),
+                    format!("{:e}", random_laws.mass_up_quark),
+                    format!("{:e}", random_laws.mass_down_quark),
+                    format!("{:e}", random_laws.mass_strange_quark),
+                    format!("{:e}", random_laws.mass_charm_quark),
+                    format!("{:e}", random_laws.mass_bottom_quark),
+                    format!("{:e}", random_laws.mass_top_quark),
+                ])?;
+            }
         }
 
         if i % 1_000_000 == 0 && i > 0 {
@@ -179,6 +203,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     wtr.flush()?;
     println!("--- MAPPING COMPLETE ---");
-    println!("Data saved to landscape_data.csv");
+    println!("Data for {} universes saved to landscape_data.csv", viable_count / SAMPLING_FACTOR);
     Ok(())
 }
