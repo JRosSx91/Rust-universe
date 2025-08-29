@@ -1,0 +1,15 @@
+{
+  "G": 6.6743e-11,
+  "e": 1.60218e-19,
+  "alpha_s": 1.0,
+  "alpha_w": 1.0e-6,
+  "mass_up_quark": 4.861466e-30,
+  "mass_down_quark": 5.001656e-30,
+  "mass_electron": 9.10938e-31,
+  "mass_strange_quark": 7.226149e-29,
+  "mass_charm_quark": 3.426056e-28,
+  "mass_muon": 1.88e-28,
+  "mass_bottom_quark": 1.65321e-28,
+  "mass_top_quark": 7.604246e-26,
+  "mass_tauon": 3.16e-27
+}

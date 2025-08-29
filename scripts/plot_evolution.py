@@ -1,39 +1,40 @@
-# plotter.py - Final Version (Analysis of Winning Generation)
+# scripts/plot_evolution.py (Corregido)
 
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 
 try:
-    log_data = pd.read_csv('final_evolution.csv', decimal='.')
+    # CORRECCIÓN: Cambiado 'final_evolution.csv' a 'evolution_data.csv'
+    log_data = pd.read_csv('evolution_data.csv')
 except FileNotFoundError:
-    print("Error: Could not find 'final_evolution.csv'.")
+    print("Error: No se pudo encontrar 'evolution_data.csv'.")
+    print("Asegúrate de haber ejecutado el modo 'evolve' primero.")
     exit()
 
 plt.style.use('dark_background')
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 15), sharex=True)
-fig.suptitle('Análisis Final de la Evolución Cósmica', fontsize=20)
+fig, ax1 = plt.subplots(1, 1, figsize=(15, 8)) # Simplificado a un solo gráfico
+fig.suptitle('Evolución del Fitness Cósmico', fontsize=20)
 
-# 1. Gráfico de Fitness
-ax1.plot(log_data['generation'], log_data['best_fitness'], 'o-', color='cyan')
-ax1.set_ylabel('Mejor Fitness')
-ax1.set_ylim(-0.05, 1.05)
+# Gráfico de Fitness
+ax1.plot(log_data['generation'], log_data['best_fitness'], 'o-', color='cyan', markersize=4, linewidth=1.5)
+ax1.set_xlabel('Generación', fontsize=12)
+ax1.set_ylabel('Mejor Fitness de la Generación', fontsize=12)
+
+# Añadir una línea de umbral para referencia
+ax1.axhline(y=0.6, color='red', linestyle='--', linewidth=1, label='Umbral de Reproducción (0.6)')
+
 ax1.grid(True, linestyle='--', alpha=0.3)
-ax1.set_title('Evolución de la Aptitud General', fontsize=16)
+ax1.set_title('Progreso de la Optimización Evolutiva', fontsize=16)
+ax1.legend()
 
-# 2. Gráfico de la Generación de Materia Ganadora
-ax2.plot(log_data['generation'], log_data['winning_generation'], 'o', color='magenta', markersize=8)
-ax2.set_xlabel('Generación')
-ax2.set_ylabel('Generación de Materia Dominante')
-# Usamos un formateador para poner etiquetas de texto en el eje Y
-ax2.yaxis.set_major_formatter(mticker.FuncFormatter(
-    lambda x, pos: {1: 'Gen 1 (Nuestro Universo)', 2: 'Gen 2 (Exótico)', 3: 'Gen 3 (Exótico)'}.get(x, 'Extinto')
-))
-ax2.set_yticks([1, 2, 3])
-ax2.grid(True, linestyle='--', alpha=0.3)
-ax2.set_title('Base de la Química a lo Largo de la Evolución', fontsize=16)
+min_fitness = log_data['best_fitness'].min()
+max_fitness = log_data['best_fitness'].max()
+ax1.set_ylim(min_fitness - 0.000005, max_fitness + 0.000005)
+
+# Mejorar la legibilidad de los números del eje Y si son muy parecidos
+plt.ticklabel_format(style='plain', axis='y', useOffset=False)
 
 
-plt.tight_layout(rect=[0, 0.03, 1, 0.96])
-print("\nMostrando el análisis final de la evolución...")
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+print("\nMostrando el análisis de la evolución...")
 plt.show()

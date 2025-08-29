@@ -1,14 +1,18 @@
 use std::error::Error;
 use rand::prelude::*;
+use rand::Rng;
 use std::f64::consts::PI;
+use std::fs;
+use serde::Deserialize;
+use clap::{Parser, Subcommand};
 
-// --- LEVEL 0 ---
+// --- LEVEL 0: CONSTANTES FÍSICAS INMUTABLES ---
 const C: f64 = 299_792_458.0;
 const H_BAR: f64 = 1.054_571_817e-34;
 const EPSILON_0: f64 = 8.854_187_81e-12;
 const STABILITY_THRESHOLD_S: f64 = 1.0e-9;
 
-// --- LEVEL 1 ---
+// --- LEVEL 1: PLANTILLAS DE PARTÍCULAS ---
 #[derive(Debug, Clone)]
 struct ParticleBlueprint {
     name: &'static str,
@@ -30,8 +34,8 @@ lazy_static::lazy_static! {
     static ref TAUON: ParticleBlueprint = ParticleBlueprint { name: "Tauon", spin: 0.5 };
 }
 
-// --- LEVEL 2 ---
-#[derive(Debug, Clone)]
+// --- LEVEL 2: EL GENOMA DE UN UNIVERSO ---
+#[derive(Debug, Clone, Deserialize)] 
 struct CosmicLaw {
     G: f64,
     e: f64,
@@ -42,7 +46,7 @@ struct CosmicLaw {
     mass_top_quark: f64, mass_bottom_quark: f64, mass_tauon: f64,
 }
 
-// --- PHYSIC ENGINE ---
+// --- MOTOR DE FÍSICA ---
 #[derive(Debug)]
 struct PhysicsEngine {
     laws: CosmicLaw,
@@ -55,84 +59,49 @@ impl PhysicsEngine {
         Self { laws, alpha }
     }
 
-    /// Heisenberg's uncertainty principle
     fn calculate_lifetime(&self, particle_mass: f64) -> f64 {
         if particle_mass <= 0.0 { return f64::INFINITY; }
-        let natural_lifetime = H_BAR / (particle_mass * C.powi(2));
-        natural_lifetime / self.laws.alpha_w
+        H_BAR / (particle_mass * C.powi(2) * self.laws.alpha_w)
     }
-
-    /// Feasibility logic for a generational path
-    /// Lógica de viabilidad con gradientes de éxito (Gaussiana).
+    
     fn evaluate_viability_path(&self, quark1_mass: f64, quark2_mass: f64, lepton_mass: f64) -> f64 {
-        // --- NIVEL 1: Viabilidad Atómica ---
-        // Este filtro sigue siendo binario. Un átomo es estable o no lo es.
         let mass_proton = 2.0 * quark1_mass + quark2_mass;
         let mass_neutron = quark1_mass + 2.0 * quark2_mass;
-        if mass_proton >= mass_neutron { return 0.0; }
-        if mass_proton + lepton_mass <= mass_neutron { return 0.0; }
+        if mass_proton >= mass_neutron || mass_proton + lepton_mass <= mass_neutron { return 0.0; }
         
-        // Puntuación base por pasar el primer filtro.
         let mut fitness_score = 0.2;
 
-        // --- NIVEL 2: Viabilidad de Nucleosíntesis (AHORA SUAVIZADO) ---
-        let deuterium_energy: f64 = (mass_proton + mass_neutron) * (self.laws.alpha_s * 0.0012) * 5.6095886e29;
-        let optimal_deuterium: f64 = 2.22; // MeV
-        let sigma_deuterium: f64 = 0.5; // MeV, una desviación estándar "razonable"
-        let fitness_nucleosynthesis: f64 = (-((deuterium_energy - optimal_deuterium).powi(2)) / (2.0 * sigma_deuterium.powi(2))).exp();
+        let deuterium_energy = (mass_proton + mass_neutron) * (self.laws.alpha_s * 0.0012) * 5.6095886e29;
+        let fitness_nucleosynthesis = (-((deuterium_energy - 2.22).powi(2)) / (2.0 * 0.5_f64.powi(2))).exp();
+        fitness_score += fitness_nucleosynthesis * 0.2;
+
+        let stellar_index = self.laws.alpha_s / self.alpha;
+        let fitness_stellar = (-((stellar_index - 137.0).powi(2)) / (2.0 * 20.0_f64.powi(2))).exp();
+        fitness_score += fitness_stellar * 0.2;
+
+        let fitness_fine_tuning = (-((deuterium_energy - 2.22).powi(2)) / (2.0 * 0.1_f64.powi(2))).exp();
+        let fitness_chemistry = (-((stellar_index - 137.0).powi(2)) / (2.0 * 5.0_f64.powi(2))).exp();
+        fitness_score += (fitness_fine_tuning * fitness_chemistry) * 0.4;
         
-        // La puntuación de este nivel es ahora un factor (0 a 1) que multiplica el potencial restante (0.8)
-        fitness_score += fitness_nucleosynthesis * 0.2; // Bonus máximo de +0.2 si es perfecto
-
-        // --- NIVEL 3: Viabilidad Estelar (AHORA SUAVIZADO) ---
-        let stellar_index: f64 = self.laws.alpha_s / self.alpha;
-        let optimal_stellar: f64 = 137.0;
-        let sigma_stellar: f64 = 20.0; // Una ventana más amplia para la formación de estrellas
-        let fitness_stellar = (-((stellar_index - optimal_stellar).powi(2)) / (2.0 * sigma_stellar.powi(2))).exp();
-
-        fitness_score += fitness_stellar * 0.2; // Bonus máximo de +0.2
-
-        // --- NIVEL 4 & 5: Viabilidad Química y Biológica (ajustes finos) ---
-        // Estos se convierten en bonificaciones adicionales si los valores son casi perfectos.
-        // Usamos una sigma mucho más pequeña para representar el "ajuste fino".
-        let sigma_deuterium_fine: f64 = 0.1;
-        let fitness_fine_tuning: f64 = (-((deuterium_energy - optimal_deuterium).powi(2)) / (2.0 * sigma_deuterium_fine.powi(2))).exp();
-        
-        let sigma_stellar_fine: f64 = 5.0;
-        let fitness_chemistry: f64 = (-((stellar_index - optimal_stellar).powi(2)) / (2.0 * sigma_stellar_fine.powi(2))).exp();
-
-        fitness_score += (fitness_fine_tuning * fitness_chemistry) * 0.4; // Bonus máximo de +0.4
-
         fitness_score
     }
 }
 
-// --- FITNESS FUNCTION ---
+// --- FUNCIÓN DE FITNESS ---
 fn calculate_fitness(laws: &CosmicLaw) -> (f64, u8) {
     let engine = PhysicsEngine::new(laws.clone());
-
-    // --- 1st Gen ---
-    let fitness_gen1 = engine.evaluate_viability_path(
-        laws.mass_up_quark, laws.mass_down_quark, laws.mass_electron
-    );
-
-    // --- 2nd Gen ---
+    let fitness_gen1 = engine.evaluate_viability_path(laws.mass_up_quark, laws.mass_down_quark, laws.mass_electron);
+    
     let mut fitness_gen2 = 0.0;
     if MUON.spin == 0.5 && engine.calculate_lifetime(laws.mass_muon) > STABILITY_THRESHOLD_S {
-        fitness_gen2 = engine.evaluate_viability_path(
-            laws.mass_strange_quark, laws.mass_charm_quark, laws.mass_muon
-        );
+        fitness_gen2 = engine.evaluate_viability_path(laws.mass_strange_quark, laws.mass_charm_quark, laws.mass_muon);
     }
-
-    // --- 3rd Gen ---
+    
     let mut fitness_gen3 = 0.0;
     if TAUON.spin == 0.5 && engine.calculate_lifetime(laws.mass_tauon) > STABILITY_THRESHOLD_S {
-        fitness_gen3 = engine.evaluate_viability_path(
-            laws.mass_bottom_quark, laws.mass_top_quark, laws.mass_tauon
-        );
+        fitness_gen3 = engine.evaluate_viability_path(laws.mass_bottom_quark, laws.mass_top_quark, laws.mass_tauon);
     }
 
-    // --- Final viability check ---
     if fitness_gen1 >= fitness_gen2 && fitness_gen1 >= fitness_gen3 {
         (fitness_gen1, 1)
     } else if fitness_gen2 >= fitness_gen3 {
@@ -142,9 +111,52 @@ fn calculate_fitness(laws: &CosmicLaw) -> (f64, u8) {
     }
 }
 
-// --- MAIN SIMULATE FUNCTION ---
-fn main() -> Result<(), Box<dyn Error>> {
-    const NUM_UNIVERSES_TO_MAP: u64 = 5_000_000; // Reducimos a 5M para una ejecución más rápida
+// --- DEFINICIÓN DE LA INTERFAZ DE LÍNEA DE COMANDOS (CLI) ---
+#[derive(Parser)]
+#[command(author, version, about = "Simulador Cosmológico 'El Armónico 137'", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Modo Mapeo: Simula N universos aleatorios para encontrar candidatos viables.
+    Map {
+        #[arg(short, long, default_value_t = 5_000_000)]
+        universes: u64,
+    },
+    /// Modo Evolutivo: Evoluciona una población a partir de una semilla.
+    Evolve {
+        #[arg(short, long)]
+        seed: String,
+        #[arg(short, long, default_value_t = 500)]
+        generations: u32,
+    },
+}
+
+// --- FUNCIÓN PRINCIPAL (PUNTO DE ENTRADA) ---
+fn main() {
+    let cli = Cli::parse();
+
+    let result = match &cli.command {
+        Commands::Map { universes } => {
+            println!("--- INICIANDO MODO MAPEO ---");
+            run_mapping_mode(*universes)
+        }
+        Commands::Evolve { seed, generations } => {
+            println!("--- INICIANDO MODO EVOLUTIVO ---");
+            run_evolutionary_mode(seed, *generations)
+        }
+    };
+
+    if let Err(e) = result {
+        eprintln!("Error en la ejecución: {}", e);
+    }
+}
+
+// --- LÓGICA DEL MODO MAPEO ---
+fn run_mapping_mode(num_universes: u64) -> Result<(), Box<dyn Error>> {
     const FITNESS_THRESHOLD_TO_LOG: f64 = 0.0;
     const SAMPLING_FACTOR: u64 = 100;
 
@@ -155,25 +167,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         "mass_charm_quark", "mass_bottom_quark", "mass_top_quark"
     ])?;
 
-    println!("--- STARTING LANDSCAPE MAPPING (v15.2 - with Sampling) ---");
-    println!("Simulating {} universes and sampling 1 in {} viable candidates...", NUM_UNIVERSES_TO_MAP, SAMPLING_FACTOR);
-
+    println!("Simulando {} universos y muestreando 1 de cada {} candidatos viables...", num_universes, SAMPLING_FACTOR);
     let mut viable_count: u64 = 0;
 
-    for i in 0..NUM_UNIVERSES_TO_MAP {
+    for i in 0..num_universes {
         let random_laws = CosmicLaw {
-            G: rng.gen_range(6.674e-11..6.674e-10),
-            e: rng.gen_range(0.5e-19..2.5e-19),
-            alpha_s: rng.gen_range(0.1..2.0),
-            alpha_w: rng.gen_range(1.0e-9..1.0e-4),
-            mass_up_quark: rng.gen_range(1.0e-30..6.0e-30),
-            mass_down_quark: rng.gen_range(1.0e-30..1.3e-29),
-            mass_electron: rng.gen_range(1.0e-31..1.0e-30),
-            mass_strange_quark: rng.gen_range(1.0e-29..1.0e-28), 
-            mass_charm_quark: rng.gen_range(1.0e-29..1.0e-27),
-            mass_muon: rng.gen_range(1.0e-29..1.0e-27),
-            mass_bottom_quark: rng.gen_range(1.0e-28..1.0e-27), 
-            mass_top_quark: rng.gen_range(1.0e-28..1.0e-25),
+            G: rng.gen_range(6.674e-11..6.674e-10), e: rng.gen_range(0.5e-19..2.5e-19),
+            alpha_s: rng.gen_range(0.1..2.0), alpha_w: rng.gen_range(1.0e-9..1.0e-4),
+            mass_up_quark: rng.gen_range(1.0e-30..6.0e-30), mass_down_quark: rng.gen_range(1.0e-30..1.3e-29),
+            mass_electron: rng.gen_range(1.0e-31..1.0e-30), mass_strange_quark: rng.gen_range(1.0e-29..1.0e-28), 
+            mass_charm_quark: rng.gen_range(1.0e-29..1.0e-27), mass_muon: rng.gen_range(1.0e-29..1.0e-27),
+            mass_bottom_quark: rng.gen_range(1.0e-28..1.0e-27), mass_top_quark: rng.gen_range(1.0e-28..1.0e-25),
             mass_tauon: rng.gen_range(1.0e-28..1.0e-26),
         };
         
@@ -181,28 +185,149 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         if fitness > FITNESS_THRESHOLD_TO_LOG {
             viable_count += 1;
-            // Solo escribimos en el archivo si el contador es un múltiplo de nuestro factor
             if viable_count % SAMPLING_FACTOR == 0 {
                 wtr.write_record(&[
-                    format!("{:e}", fitness),
-                    winning_gen.to_string(),
-                    format!("{:e}", random_laws.mass_up_quark),
-                    format!("{:e}", random_laws.mass_down_quark),
-                    format!("{:e}", random_laws.mass_strange_quark),
-                    format!("{:e}", random_laws.mass_charm_quark),
-                    format!("{:e}", random_laws.mass_bottom_quark),
-                    format!("{:e}", random_laws.mass_top_quark),
+                    format!("{:e}", fitness), winning_gen.to_string(),
+                    format!("{:e}", random_laws.mass_up_quark), format!("{:e}", random_laws.mass_down_quark),
+                    format!("{:e}", random_laws.mass_strange_quark), format!("{:e}", random_laws.mass_charm_quark),
+                    format!("{:e}", random_laws.mass_bottom_quark), format!("{:e}", random_laws.mass_top_quark),
                 ])?;
             }
         }
-
-        if i % 1_000_000 == 0 && i > 0 {
-            println!("... {} million universes mapped.", i / 1_000_000);
+        if i > 0 && i % 1_000_000 == 0 {
+            println!("... {} millones de universos mapeados.", i / 1_000_000);
         }
     }
 
     wtr.flush()?;
-    println!("--- MAPPING COMPLETE ---");
-    println!("Data for {} universes saved to landscape_data.csv", viable_count / SAMPLING_FACTOR);
+    println!("--- MAPEO COMPLETADO ---");
+    println!("Datos de {} universos guardados en landscape_data.csv", viable_count / SAMPLING_FACTOR);
     Ok(())
+}
+
+// Dentro de main.rs...
+
+// --- LÓGICA DEL MODO EVOLUTIVO (COMPLETA) ---
+fn run_evolutionary_mode(seed_file: &str, num_generations: u32) -> Result<(), Box<dyn Error>> {
+    // --- 1. SETUP ---
+    let adam_genome: CosmicLaw = serde_json::from_str(&fs::read_to_string(seed_file)?)?;
+    let mut rng = thread_rng();
+    
+    const POPULATION_SIZE: usize = 100;
+    const MUTATION_RATE: f64 = 0.10; // 2% de probabilidad de mutación por gen
+    const TOURNAMENT_SIZE: usize = 3;
+
+    // Preparamos el archivo CSV para registrar los resultados
+    let mut wtr = csv::Writer::from_path("evolution_data.csv")?;
+    wtr.write_record(&["generation", "best_fitness"])?;
+
+    // --- 2. POBLACIÓN INICIAL ---
+    let mut population: Vec<CosmicLaw> = (0..POPULATION_SIZE)
+        .map(|_| adam_genome.mutate(&mut rng, MUTATION_RATE))
+        .collect();
+
+    println!("Población inicial creada. Iniciando evolución...");
+
+    // --- 3. BUCLE GENERACIONAL ---
+    for generation in 0..num_generations {
+        // a. Evaluar a toda la población
+        let mut evaluated_population: Vec<(CosmicLaw, f64)> = population.iter()
+            .map(|laws| (laws.clone(), calculate_fitness(laws).0))
+            .collect();
+        
+        // Ordenamos para encontrar al campeón de esta generación
+        evaluated_population.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        
+        let champion = &evaluated_population[0];
+        
+        // Escribir los datos del campeón en el archivo CSV
+        wtr.write_record(&[
+            generation.to_string(),
+            champion.1.to_string(),
+        ])?;
+        
+        // b, c. Crear la nueva generación
+        let mut next_population = Vec::with_capacity(POPULATION_SIZE);
+        // Elitismo: El campeón pasa directamente a la siguiente generación sin mutar
+        next_population.push(champion.0.clone());
+
+        // Llenar el resto de la población mediante selección y mutación
+        for _ in 1..POPULATION_SIZE {
+            // Seleccionar un padre mediante torneo
+            let mut tournament_contenders = Vec::with_capacity(TOURNAMENT_SIZE);
+            for _ in 0..TOURNAMENT_SIZE {
+                let random_index = rng.gen_range(0..evaluated_population.len());
+                tournament_contenders.push(&evaluated_population[random_index]);
+            }
+            let parent = tournament_contenders.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap()).unwrap();
+
+            // Crear un hijo mutando al padre y añadirlo a la nueva población
+            let child = parent.0.mutate(&mut rng, MUTATION_RATE);
+            next_population.push(child);
+        }
+        
+        population = next_population;
+
+        // Informar del progreso en la consola cada 10 generaciones
+        if generation % 10 == 0 {
+             println!("Generación: {}, Mejor Fitness: {:.6}", generation, champion.1);
+        }
+    }
+    
+    // Asegurarse de que todos los datos se escriben en el disco
+    wtr.flush()?;
+    println!("--- EVOLUCIÓN COMPLETADA ---");
+    println!("Resultados guardados en evolution_data.csv");
+    Ok(())
+}
+
+// --- IMPLEMENTACIÓN DE LA LÓGICA DE MUTACIÓN (VERSIÓN FINAL) ---
+// --- IMPLEMENTACIÓN DE LA LÓGICA DE MUTACIÓN (VERSIÓN FINAL CORREGIDA) ---
+impl CosmicLaw {
+    /// Aplica una mutación a una copia del genoma.
+    fn mutate(&self, rng: &mut impl Rng, rate: f64) -> Self {
+        let mut new_laws = self.clone();
+
+        // Solución definitiva: Separamos la generación y la comparación para eliminar la ambigüedad.
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.G *= rng.gen_range(00.95..1.05); }
+        
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.e *= rng.gen_range(0.95..1.05); }
+
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.alpha_s *= rng.gen_range(0.95..1.05); }
+
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.alpha_w *= rng.gen_range(0.95..1.05); }
+
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.mass_up_quark *= rng.gen_range(00.95..1.05); }
+
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.mass_down_quark *= rng.gen_range(0.95..1.05); }
+
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.mass_electron *= rng.gen_range(0.95..1.05); }
+
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.mass_strange_quark *= rng.gen_range(0.95..1.05); }
+
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.mass_charm_quark *= rng.gen_range(0.95..1.05); }
+
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.mass_muon *= rng.gen_range(0.95..1.05); }
+
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.mass_bottom_quark *= rng.gen_range(0.95..1.05); }
+        
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.mass_top_quark *= rng.gen_range(0.95..1.05); }
+        
+        let roll = rng.gen::<f64>();
+        if roll < rate { new_laws.mass_tauon *= rng.gen_range(0.95..1.05); }
+
+        new_laws
+    }
 }
