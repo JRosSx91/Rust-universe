@@ -205,17 +205,15 @@ fn run_mapping_mode(num_universes: u64) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-// Dentro de main.rs...
-
-// --- LÓGICA DEL MODO EVOLUTIVO (COMPLETA) ---
 fn run_evolutionary_mode(seed_file: &str, num_generations: u32) -> Result<(), Box<dyn Error>> {
     // --- 1. SETUP ---
     let adam_genome: CosmicLaw = serde_json::from_str(&fs::read_to_string(seed_file)?)?;
     let mut rng = thread_rng();
     
     const POPULATION_SIZE: usize = 100;
-    const MUTATION_RATE: f64 = 0.10; // 2% de probabilidad de mutación por gen
+    const MUTATION_RATE: f64 = 0.10; // 10% de probabilidad por gen
     const TOURNAMENT_SIZE: usize = 3;
+    const HYPERMUTATION_CHANCE: f64 = 0.05; // 5% de las mutaciones serán 'saltos de fe'
 
     // Preparamos el archivo CSV para registrar los resultados
     let mut wtr = csv::Writer::from_path("evolution_data.csv")?;
@@ -223,7 +221,7 @@ fn run_evolutionary_mode(seed_file: &str, num_generations: u32) -> Result<(), Bo
 
     // --- 2. POBLACIÓN INICIAL ---
     let mut population: Vec<CosmicLaw> = (0..POPULATION_SIZE)
-        .map(|_| adam_genome.mutate(&mut rng, MUTATION_RATE))
+        .map(|_| adam_genome.mutate(&mut rng, MUTATION_RATE, HYPERMUTATION_CHANCE))
         .collect();
 
     println!("Población inicial creada. Iniciando evolución...");
@@ -262,7 +260,7 @@ fn run_evolutionary_mode(seed_file: &str, num_generations: u32) -> Result<(), Bo
             let parent = tournament_contenders.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap()).unwrap();
 
             // Crear un hijo mutando al padre y añadirlo a la nueva población
-            let child = parent.0.mutate(&mut rng, MUTATION_RATE);
+            let child = parent.0.mutate(&mut rng, MUTATION_RATE, HYPERMUTATION_CHANCE);
             next_population.push(child);
         }
         
@@ -281,52 +279,103 @@ fn run_evolutionary_mode(seed_file: &str, num_generations: u32) -> Result<(), Bo
     Ok(())
 }
 
-// --- IMPLEMENTACIÓN DE LA LÓGICA DE MUTACIÓN (VERSIÓN FINAL) ---
-// --- IMPLEMENTACIÓN DE LA LÓGICA DE MUTACIÓN (VERSIÓN FINAL CORREGIDA) ---
+// --- IMPLEMENTACIÓN DE LA LÓGICA DE MUTACIÓN (CON HIPERMUTACIÓN) ---
 impl CosmicLaw {
-    /// Aplica una mutación a una copia del genoma.
-    fn mutate(&self, rng: &mut impl Rng, rate: f64) -> Self {
+    /// Aplica una mutación a una copia del genoma, con posibilidad de hipermutación.
+    fn mutate(&self, rng: &mut impl Rng, rate: f64, hypermutation_chance: f64) -> Self {
         let mut new_laws = self.clone();
 
-        // Solución definitiva: Separamos la generación y la comparación para eliminar la ambigüedad.
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.G *= rng.gen_range(00.95..1.05); }
-        
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.e *= rng.gen_range(0.95..1.05); }
-
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.alpha_s *= rng.gen_range(0.95..1.05); }
-
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.alpha_w *= rng.gen_range(0.95..1.05); }
-
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.mass_up_quark *= rng.gen_range(00.95..1.05); }
-
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.mass_down_quark *= rng.gen_range(0.95..1.05); }
-
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.mass_electron *= rng.gen_range(0.95..1.05); }
-
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.mass_strange_quark *= rng.gen_range(0.95..1.05); }
-
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.mass_charm_quark *= rng.gen_range(0.95..1.05); }
-
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.mass_muon *= rng.gen_range(0.95..1.05); }
-
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.mass_bottom_quark *= rng.gen_range(0.95..1.05); }
-        
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.mass_top_quark *= rng.gen_range(0.95..1.05); }
-        
-        let roll = rng.gen::<f64>();
-        if roll < rate { new_laws.mass_tauon *= rng.gen_range(0.95..1.05); }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.G = rng.gen_range(6.674e-11..6.674e-10);
+            } else {
+                new_laws.G *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.e = rng.gen_range(0.5e-19..2.5e-19);
+            } else {
+                new_laws.e *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.alpha_s = rng.gen_range(0.1..2.0);
+            } else {
+                new_laws.alpha_s *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.alpha_w = rng.gen_range(1.0e-9..1.0e-4);
+            } else {
+                new_laws.alpha_w *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.mass_up_quark = rng.gen_range(1.0e-30..6.0e-30);
+            } else {
+                new_laws.mass_up_quark *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.mass_down_quark = rng.gen_range(1.0e-30..1.3e-29);
+            } else {
+                new_laws.mass_down_quark *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.mass_electron = rng.gen_range(1.0e-31..1.0e-30);
+            } else {
+                new_laws.mass_electron *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.mass_strange_quark = rng.gen_range(1.0e-29..1.0e-28);
+            } else {
+                new_laws.mass_strange_quark *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.mass_charm_quark = rng.gen_range(1.0e-29..1.0e-27);
+            } else {
+                new_laws.mass_charm_quark *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.mass_muon = rng.gen_range(1.0e-29..1.0e-27);
+            } else {
+                new_laws.mass_muon *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.mass_bottom_quark = rng.gen_range(1.0e-28..1.0e-27);
+            } else {
+                new_laws.mass_bottom_quark *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.mass_top_quark = rng.gen_range(1.0e-28..1.0e-25);
+            } else {
+                new_laws.mass_top_quark *= rng.gen_range(0.95..1.05);
+            }
+        }
+        if rng.gen::<f64>() < rate {
+            if rng.gen::<f64>() < hypermutation_chance {
+                new_laws.mass_tauon = rng.gen_range(1.0e-28..1.0e-26);
+            } else {
+                new_laws.mass_tauon *= rng.gen_range(0.95..1.05);
+            }
+        }
 
         new_laws
     }
