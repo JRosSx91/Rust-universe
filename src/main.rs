@@ -85,30 +85,82 @@ impl PhysicsEngine {
         
         fitness_score
     }
+
+    fn can_sustain_fusion(&self) -> bool {
+    const K_B: f64 = 1.380649e-23; // Constante de Boltzmann
+    let t_stellar = 1.5e7; // Temperatura típica del núcleo de una estrella en Kelvin
+
+    let m_proton = self.laws.mass_up_quark * 2.0 + self.laws.mass_down_quark;
+    let m_reduced = m_proton / 2.0; // Masa reducida para la fusión protón-protón
+
+    // E_G = (pi * alpha * Z1 * Z2)^2 * 2 * m_r * c^2
+    // Esta es una aproximación de la Energía de Gamow.
+    // La probabilidad de túnel es exp(-sqrt(E_G / kT))
+    let gamow_energy = (PI * self.alpha * 1.0 * 1.0).powi(2) * 2.0 * m_reduced * C.powi(2);
+    let gamow_factor = (gamow_energy / (K_B * t_stellar)).sqrt();
+
+    // Si el factor es demasiado alto, la probabilidad de túnel es cero.
+    // Si es demasiado bajo, la fusión es demasiado rápida y la estrella explota.
+    // Buscamos un valor en un "punto dulce".
+    gamow_factor > 20.0 && gamow_factor < 100.0
+    }
+
+    fn chandrasekhar_mass(&self) -> f64 {
+    let m_proton = self.laws.mass_up_quark * 2.0 + self.laws.mass_down_quark;
+    // La fórmula es M_ch ≈ (ℏc/G)^(3/2) * m_p^(-2)
+    (H_BAR * C / self.laws.G).powf(1.5) / m_proton.powi(2)
+    }
+
+    fn can_form_black_holes(&self) -> bool {
+    let m_chandrasekhar = self.chandrasekhar_mass();
+    const M_SOLAR: f64 = 1.989e30; // Masa del sol como referencia
+
+    // Límites aproximados para la masa de una estrella.
+    let min_stellar_mass = 0.08 * M_SOLAR; // Límite inferior para la fusión.
+    let max_stellar_mass = 150.0 * M_SOLAR; // Límite superior por presión de radiación.
+
+    // El criterio es: el límite de Chandrasekhar debe estar dentro del rango
+    // posible de masas estelares. Si es muy bajo, todo colapsa.
+    // Si es muy alto, nada colapsa en algo más denso que una enana blanca.
+    m_chandrasekhar > min_stellar_mass && m_chandrasekhar < max_stellar_mass
 }
 
-// --- FUNCIÓN DE FITNESS ---
+
+    
+}
+
+// DENTRO DE: fn main.rs
+
+// REEMPLAZA LA FUNCIÓN calculate_fitness ENTERA POR ESTA:
 fn calculate_fitness(laws: &CosmicLaw) -> (f64, u8) {
     let engine = PhysicsEngine::new(laws.clone());
-    let fitness_gen1 = engine.evaluate_viability_path(laws.mass_up_quark, laws.mass_down_quark, laws.mass_electron);
-    
-    let mut fitness_gen2 = 0.0;
-    if MUON.spin == 0.5 && engine.calculate_lifetime(laws.mass_muon) > STABILITY_THRESHOLD_S {
-        fitness_gen2 = engine.evaluate_viability_path(laws.mass_strange_quark, laws.mass_charm_quark, laws.mass_muon);
+
+    // --- NIVEL 1: ¿Existe la química? (Viabilidad Atómica) ---
+    // Verificamos la estabilidad del protón y del átomo de hidrógeno.
+    let mass_proton = 2.0 * laws.mass_up_quark + laws.mass_down_quark;
+    let mass_neutron = laws.mass_up_quark + 2.0 * laws.mass_down_quark;
+    if mass_proton >= mass_neutron || mass_proton + laws.mass_electron <= mass_neutron {
+        return (0.0, 0); // Universo fallido
     }
-    
-    let mut fitness_gen3 = 0.0;
-    if TAUON.spin == 0.5 && engine.calculate_lifetime(laws.mass_tauon) > STABILITY_THRESHOLD_S {
-        fitness_gen3 = engine.evaluate_viability_path(laws.mass_bottom_quark, laws.mass_top_quark, laws.mass_tauon);
+    // Si pasamos, tenemos un fitness base que representa un universo con átomos estables.
+    let mut fitness_score = 0.2; // ⚛️ Química básica posible.
+
+    // --- NIVEL 2: ¿Existen las estrellas? (Viabilidad de Fusión) ---
+    // Usamos la nueva función para ver si la fusión es posible.
+    if engine.can_sustain_fusion() {
+        fitness_score += 0.4; // 🔥 Estrellas que brillan.
+    } else {
+        return (fitness_score, 1); // Se queda en un universo químico pero oscuro.
     }
 
-    if fitness_gen1 >= fitness_gen2 && fitness_gen1 >= fitness_gen3 {
-        (fitness_gen1, 1)
-    } else if fitness_gen2 >= fitness_gen3 {
-        (fitness_gen2, 2)
-    } else {
-        (fitness_gen3, 3)
+    // --- NIVEL 3: ¿Se puede "reproducir"? (Viabilidad de Agujeros Negros) ---
+    // Usamos la nueva función para ver si las estrellas pueden ser suficientemente masivas.
+    if engine.can_form_black_holes() {
+        fitness_score += 0.4; // ⚫ Potencial para la selección cósmica.
     }
+
+    // Devolvemos el fitness final y la generación (simplificado a 1 por ahora).
+    (fitness_score, 1)
 }
 
 // --- DEFINICIÓN DE LA INTERFAZ DE LÍNEA DE COMANDOS (CLI) ---
