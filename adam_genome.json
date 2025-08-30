@@ -1,15 +1,15 @@
 {
-  "G": 6.6743e-11,
-  "e": 1.60218e-19,
-  "alpha_s": 1.0,
-  "alpha_w": 1.0e-6,
-  "mass_up_quark": 4.861466e-30,
-  "mass_down_quark": 5.001656e-30,
-  "mass_electron": 9.10938e-31,
-  "mass_strange_quark": 7.226149e-29,
-  "mass_charm_quark": 3.426056e-28,
-  "mass_muon": 1.88e-28,
-  "mass_bottom_quark": 1.65321e-28,
-  "mass_top_quark": 7.604246e-26,
-  "mass_tauon": 3.16e-27
+    "G": 6.6743e-11,
+    "e": 1.60217663e-19,
+    "alpha_s": 1.0,
+    "alpha_w": 1e-06,
+    "mass_electron": 9.10938356e-31,
+    "mass_muon": 1.883531594e-28,
+    "mass_tauon": 3.16754e-27,
+    "mass_up_quark": 2.754727761084032e-30,
+    "mass_down_quark": 2.9729162964603248e-30,
+    "mass_strange_quark": 4.0315467447417654e-29,
+    "mass_charm_quark": 9.285232012596364e-28,
+    "mass_bottom_quark": 8.373036731740322e-28,
+    "mass_top_quark": 9.081127061421876e-26
 }

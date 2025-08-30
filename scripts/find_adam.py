@@ -2,13 +2,24 @@
 
 import pandas as pd
 import json
+import os
 
-# Cargar los datos generados por el modo 'map'
 try:
-    df = pd.read_csv('../data/landscape_data.csv')
+    # --- CÓDIGO MEJORADO ---
+    # Encuentra la ruta del directorio donde se encuentra este script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Construye la ruta al archivo CSV, que está en el directorio padre (../)
+    csv_path = os.path.join(script_dir, '..', 'landscape_data.csv')
+
+    df = pd.read_csv(csv_path)
+    # -----------------------
+
 except FileNotFoundError:
-    print("Error: 'landscape_data.csv' not found. Run the map mode first.")
+    print(f"Error: No se pudo encontrar '{csv_path}'.")
+    print("Asegúrate de haber ejecutado el modo 'map' primero.")
     exit()
+
 
 # Encontrar el universo con el mayor fitness
 adam = df.loc[df['fitness'].idxmax()]

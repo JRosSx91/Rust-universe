@@ -10,7 +10,8 @@ use clap::{Parser, Subcommand};
 const C: f64 = 299_792_458.0;
 const H_BAR: f64 = 1.054_571_817e-34;
 const EPSILON_0: f64 = 8.854_187_81e-12;
-const STABILITY_THRESHOLD_S: f64 = 1.0e-9;
+const K_B: f64 = 1.380649e-23; // Constante de Boltzmann
+const M_SOLAR: f64 = 1.989e30;
 
 // --- LEVEL 1: PLANTILLAS DE PARTÍCULAS ---
 #[derive(Debug, Clone)]
@@ -53,95 +54,144 @@ struct PhysicsEngine {
     alpha: f64,
 }
 
+// --- IMPLEMENTACIÓN DEL MOTOR DE FÍSICA (v18.0 - CON GRADIENTES SUAVES) ---
+// --- IMPLEMENTACIÓN DEL MOTOR DE FÍSICA (v18.1 - COMPLETO) ---
 impl PhysicsEngine {
     fn new(laws: CosmicLaw) -> Self {
         let alpha = laws.e.powi(2) / (4.0 * PI * EPSILON_0 * H_BAR * C);
         Self { laws, alpha }
     }
 
-    fn can_sustain_fusion(&self) -> bool {
-    const K_B: f64 = 1.380649e-23; // Constante de Boltzmann
-    let t_stellar = 1.5e7; // Temperatura típica del núcleo de una estrella en Kelvin
-
-    let thermal_energy = K_B * t_stellar;
-
-    let m_proton = self.laws.mass_up_quark * 2.0 + self.laws.mass_down_quark;
-    let m_reduced = m_proton / 2.0; // Masa reducida para la fusión protón-protón
-
-    let gamow_energy = 2.0 * m_reduced * C.powi(2) * (PI * self.alpha).powi(2);
-
-    // El factor clave en el exponente de la probabilidad de túnel es sqrt(E_G / E_k)
-    let tunnel_exponent = (gamow_energy / thermal_energy).sqrt();
-
-    // El umbral de ~19.5 del PDF es un excelente punto de referencia.
-    // Un valor demasiado bajo significa que la estrella quema su combustible demasiado rápido.
-    // Un valor demasiado alto significa que la fusión nunca se enciende.
-    // Calibramos nuestro "punto dulce" alrededor de ese valor.
-    tunnel_exponent > 15.0 && tunnel_exponent < 50.0
-    }
-
     fn chandrasekhar_mass(&self) -> f64 {
-    let m_proton = self.laws.mass_up_quark * 2.0 + self.laws.mass_down_quark;
-    
-    // mu_e es el número de nucleones (protones+neutrones) por electrón.
-    // Para hidrógeno es 1, para helio/carbono/oxígeno es ~2.
-    // Usamos 2 como una aproximación para la materia de una enana blanca.
-    let mu_e = 2.0; 
-    
-    // La fórmula completa es M_ch ≈ (ℏc/G)^(3/2) * (m_p * mu_e)^(-2)
-    (H_BAR * C / self.laws.G).powf(1.5) / (m_proton * mu_e).powi(2)
+        let m_proton = self.laws.mass_up_quark * 2.0 + self.laws.mass_down_quark;
+        if m_proton <= 0.0 || self.laws.G <= 0.0 { return 0.0; }
+        let mu_e = 2.0;
+        (H_BAR * C / self.laws.G).powf(1.5) / (m_proton * mu_e).powi(2)
     }
 
-    fn can_form_black_holes(&self) -> bool {
-    let m_chandrasekhar = self.chandrasekhar_mass();
-    const M_SOLAR: f64 = 1.989e30; // Masa del sol como referencia
+    fn calculate_stellar_viability(&self) -> f64 {
+        let t_core = 1.5e7;
+        let thermal_energy = K_B * t_core;
+        let m_proton = 2.0 * self.laws.mass_up_quark + self.laws.mass_down_quark;
+        if m_proton <= 0.0 { return 0.0; }
+        let m_reduced = m_proton / 2.0;
 
-    // Límites aproximados para la masa de una estrella.
-    let min_stellar_mass = 0.08 * M_SOLAR; // Límite inferior para la fusión.
-    let max_stellar_mass = 150.0 * M_SOLAR; // Límite superior por presión de radiación.
-
-    // El criterio es: el límite de Chandrasekhar debe estar dentro del rango
-    // posible de masas estelares. Si es muy bajo, todo colapsa.
-    // Si es muy alto, nada colapsa en algo más denso que una enana blanca.
-    m_chandrasekhar > min_stellar_mass && m_chandrasekhar < max_stellar_mass
-}
-
-
+        let gamow_energy = 2.0 * m_reduced * C.powi(2) * (PI * self.alpha).powi(2);
+        if thermal_energy <= 0.0 || gamow_energy < 0.0 { return 0.0; }
+        let tunnel_exponent = - (gamow_energy / thermal_energy).sqrt();
+        let fusion_rate = tunnel_exponent.exp();
+        
+        if fusion_rate < 1e-30 { return 0.0; }
+        let log_rate = fusion_rate.ln();
+        
+        1.0 / (1.0 + ((-log_rate - 50.0) / 10.0).exp())
+    }
     
+    fn calculate_black_hole_potential(&self) -> f64 {
+        let m_ch = self.chandrasekhar_mass();
+        if m_ch.is_nan() || m_ch.is_infinite() || m_ch <= 0.0 { return 0.0; }
+        let target_log_mass = (8.0 * M_SOLAR).log10();
+        let current_log_mass = m_ch.log10();
+        
+        let exponent = -((current_log_mass - target_log_mass).powi(2)) / (2.0 * 1.0_f64.powi(2));
+        exponent.exp()
+    }
+    
+    fn nuclear_stability_score(&self) -> f64 {
+        let m_proton = 2.0 * self.laws.mass_up_quark + self.laws.mass_down_quark;
+        if m_proton <= 0.0 { return 0.0; }
+
+        let binding_energy_deuterium = self.laws.alpha_s * m_proton * C.powi(2) * 0.0023;
+        let target_binding_joules = 2.22 * 1.602e-13;
+        if target_binding_joules <= 0.0 { return 0.0; }
+        let relative_error = (binding_energy_deuterium - target_binding_joules).abs() / target_binding_joules;
+        
+        (-relative_error.powi(2) / 0.5).exp()
+    }
+
+    // FUNCIÓN AÑADIDA QUE FALTABA
+    fn heavy_elements_viability(&self) -> f64 {
+        let alpha_s_optimal = 0.118;
+        let alpha_s_error = (self.laws.alpha_s - alpha_s_optimal).abs() / alpha_s_optimal;
+        
+        if alpha_s_error < 0.5 {
+            1.0 - alpha_s_error
+        } else {
+            0.0
+        }
+    }
 }
 
-// DENTRO DE: fn main.rs
-
-// REEMPLAZA LA FUNCIÓN calculate_fitness ENTERA POR ESTA:
 fn calculate_fitness(laws: &CosmicLaw) -> (f64, u8) {
     let engine = PhysicsEngine::new(laws.clone());
 
-    // --- NIVEL 1: ¿Existe la química? (Viabilidad Atómica) ---
-    // Verificamos la estabilidad del protón y del átomo de hidrógeno.
     let mass_proton = 2.0 * laws.mass_up_quark + laws.mass_down_quark;
     let mass_neutron = laws.mass_up_quark + 2.0 * laws.mass_down_quark;
+    
+    // Verificación de viabilidad básica
     if mass_proton >= mass_neutron || mass_proton + laws.mass_electron <= mass_neutron {
-        return (0.0, 0); // Universo fallido
-    }
-    // Si pasamos, tenemos un fitness base que representa un universo con átomos estables.
-    let mut fitness_score = 0.2; // ⚛️ Química básica posible.
-
-    // --- NIVEL 2: ¿Existen las estrellas? (Viabilidad de Fusión) ---
-    // Usamos la nueva función para ver si la fusión es posible.
-    if engine.can_sustain_fusion() {
-        fitness_score += 0.4; // 🔥 Estrellas que brillan.
-    } else {
-        return (fitness_score, 1); // Se queda en un universo químico pero oscuro.
+        return (0.0, 0);
     }
 
-    // --- NIVEL 3: ¿Se puede "reproducir"? (Viabilidad de Agujeros Negros) ---
-    // Usamos la nueva función para ver si las estrellas pueden ser suficientemente masivas.
-    if engine.can_form_black_holes() {
-        fitness_score += 0.4; // ⚫ Potencial para la selección cósmica.
+    let mut fitness = 0.0;
+    let mut complexity_level = 0;
+
+    // NIVEL 1: Química Básica (0.0-0.2)
+    let stability_margin = mass_neutron - mass_proton;
+    let atomic_fitness = (stability_margin / mass_proton).min(0.1);
+    
+    // Bonus por enlace electromagnético estable
+    let bohr_radius = 4.0 * PI * EPSILON_0 * H_BAR.powi(2) / (laws.mass_electron * laws.e.powi(2));
+    let em_stability = if bohr_radius > 0.0 && bohr_radius < 1e-9 { 0.1 } else { 0.0 };
+    
+    fitness += atomic_fitness + em_stability;
+    
+    if fitness >= 0.15 {
+        complexity_level = 1; // Universo con átomos
+        
+        // NIVEL 2: Física Nuclear y Estelar (0.0-0.35)
+        let nuclear_score = engine.nuclear_stability_score();
+        let stellar_score = engine.calculate_stellar_viability();
+        let nuclear_fitness = 0.15 * nuclear_score + 0.2 * stellar_score;
+        
+        fitness += nuclear_fitness;
+        
+        if fitness >= 0.4 {
+            complexity_level = 2; // Universo con estrellas
+            
+            // NIVEL 3: Elementos Pesados y Complejidad (0.0-0.25)
+            let heavy_elements = engine.heavy_elements_viability();
+            let complexity_fitness = 0.25 * heavy_elements;
+            
+            fitness += complexity_fitness;
+            
+            if fitness >= 0.6 {
+                complexity_level = 3; // Universo con química compleja
+                
+                // NIVEL 4: Potencial Reproductivo (0.0-0.2)
+                let reproductive_fitness = 0.2 * engine.calculate_black_hole_potential();
+                fitness += reproductive_fitness;
+                
+                if fitness >= 0.75 {
+                    complexity_level = 4; // Universo auto-reproductivo
+                }
+            }
+        }
     }
 
-    // Devolvemos el fitness final y la generación (simplificado a 1 por ahora).
-    (fitness_score, 1)
+    (fitness, complexity_level)
+}
+
+// Función auxiliar para análisis del paisaje
+fn analyze_universe_type(fitness: f64, level: u8) -> &'static str {
+    match level {
+        0 => "Estéril",
+        1 => "Químico",
+        2 => "Estelar", 
+        3 => "Complejo",
+        4 => "Reproductivo",
+        _ => "Desconocido"
+    }
 }
 
 // --- DEFINICIÓN DE LA INTERFAZ DE LÍNEA DE COMANDOS (CLI) ---
@@ -215,6 +265,14 @@ fn run_mapping_mode(num_universes: u64) -> Result<(), Box<dyn Error>> {
         };
         
         let (fitness, winning_gen) = calculate_fitness(&random_laws);
+
+        // Añadir al modo mapping
+        if fitness > FITNESS_THRESHOLD_TO_LOG {
+            let universe_type = analyze_universe_type(fitness, winning_gen);
+            if i % 10_000_000 == 0 {
+                println!("Muestra #{}: Fitness {:.4}, Tipo: {}", i, fitness, universe_type);
+            }
+        }
 
         if fitness > FITNESS_THRESHOLD_TO_LOG {
             viable_count += 1;
