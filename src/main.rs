@@ -59,56 +59,37 @@ impl PhysicsEngine {
         Self { laws, alpha }
     }
 
-    fn calculate_lifetime(&self, particle_mass: f64) -> f64 {
-        if particle_mass <= 0.0 { return f64::INFINITY; }
-        H_BAR / (particle_mass * C.powi(2) * self.laws.alpha_w)
-    }
-    
-    fn evaluate_viability_path(&self, quark1_mass: f64, quark2_mass: f64, lepton_mass: f64) -> f64 {
-        let mass_proton = 2.0 * quark1_mass + quark2_mass;
-        let mass_neutron = quark1_mass + 2.0 * quark2_mass;
-        if mass_proton >= mass_neutron || mass_proton + lepton_mass <= mass_neutron { return 0.0; }
-        
-        let mut fitness_score = 0.2;
-
-        let deuterium_energy = (mass_proton + mass_neutron) * (self.laws.alpha_s * 0.0012) * 5.6095886e29;
-        let fitness_nucleosynthesis = (-((deuterium_energy - 2.22).powi(2)) / (2.0 * 0.5_f64.powi(2))).exp();
-        fitness_score += fitness_nucleosynthesis * 0.2;
-
-        let stellar_index = self.laws.alpha_s / self.alpha;
-        let fitness_stellar = (-((stellar_index - 137.0).powi(2)) / (2.0 * 20.0_f64.powi(2))).exp();
-        fitness_score += fitness_stellar * 0.2;
-
-        let fitness_fine_tuning = (-((deuterium_energy - 2.22).powi(2)) / (2.0 * 0.1_f64.powi(2))).exp();
-        let fitness_chemistry = (-((stellar_index - 137.0).powi(2)) / (2.0 * 5.0_f64.powi(2))).exp();
-        fitness_score += (fitness_fine_tuning * fitness_chemistry) * 0.4;
-        
-        fitness_score
-    }
-
     fn can_sustain_fusion(&self) -> bool {
     const K_B: f64 = 1.380649e-23; // Constante de Boltzmann
     let t_stellar = 1.5e7; // Temperatura típica del núcleo de una estrella en Kelvin
 
+    let thermal_energy = K_B * t_stellar;
+
     let m_proton = self.laws.mass_up_quark * 2.0 + self.laws.mass_down_quark;
     let m_reduced = m_proton / 2.0; // Masa reducida para la fusión protón-protón
 
-    // E_G = (pi * alpha * Z1 * Z2)^2 * 2 * m_r * c^2
-    // Esta es una aproximación de la Energía de Gamow.
-    // La probabilidad de túnel es exp(-sqrt(E_G / kT))
-    let gamow_energy = (PI * self.alpha * 1.0 * 1.0).powi(2) * 2.0 * m_reduced * C.powi(2);
-    let gamow_factor = (gamow_energy / (K_B * t_stellar)).sqrt();
+    let gamow_energy = 2.0 * m_reduced * C.powi(2) * (PI * self.alpha).powi(2);
 
-    // Si el factor es demasiado alto, la probabilidad de túnel es cero.
-    // Si es demasiado bajo, la fusión es demasiado rápida y la estrella explota.
-    // Buscamos un valor en un "punto dulce".
-    gamow_factor > 20.0 && gamow_factor < 100.0
+    // El factor clave en el exponente de la probabilidad de túnel es sqrt(E_G / E_k)
+    let tunnel_exponent = (gamow_energy / thermal_energy).sqrt();
+
+    // El umbral de ~19.5 del PDF es un excelente punto de referencia.
+    // Un valor demasiado bajo significa que la estrella quema su combustible demasiado rápido.
+    // Un valor demasiado alto significa que la fusión nunca se enciende.
+    // Calibramos nuestro "punto dulce" alrededor de ese valor.
+    tunnel_exponent > 15.0 && tunnel_exponent < 50.0
     }
 
     fn chandrasekhar_mass(&self) -> f64 {
     let m_proton = self.laws.mass_up_quark * 2.0 + self.laws.mass_down_quark;
-    // La fórmula es M_ch ≈ (ℏc/G)^(3/2) * m_p^(-2)
-    (H_BAR * C / self.laws.G).powf(1.5) / m_proton.powi(2)
+    
+    // mu_e es el número de nucleones (protones+neutrones) por electrón.
+    // Para hidrógeno es 1, para helio/carbono/oxígeno es ~2.
+    // Usamos 2 como una aproximación para la materia de una enana blanca.
+    let mu_e = 2.0; 
+    
+    // La fórmula completa es M_ch ≈ (ℏc/G)^(3/2) * (m_p * mu_e)^(-2)
+    (H_BAR * C / self.laws.G).powf(1.5) / (m_proton * mu_e).powi(2)
     }
 
     fn can_form_black_holes(&self) -> bool {
